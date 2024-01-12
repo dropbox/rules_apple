@@ -45,6 +45,7 @@ def _cc_info_with_dependencies(
         includes = [],
         swiftinterface_imports = [],
         swiftmodule_imports = [],
+        bundling_imports = [],
         is_framework = True):
     """Returns a new CcInfo which includes transitive Cc dependencies.
 
@@ -121,6 +122,7 @@ def _cc_info_with_dependencies(
                     owner = label,
                     libraries = depset(libraries_to_link),
                     user_link_flags = linkopts,
+                    additional_inputs = depset(bundling_imports + libraries),
                 ),
             ]),
         ),
@@ -417,7 +419,8 @@ def _objc_provider_with_dependencies(
         sdk_dylib = None,
         sdk_framework = None,
         static_framework_file = None,
-        weak_sdk_framework = None):
+        weak_sdk_framework = None,
+        link_inputs = None):
     """Returns a new Objc provider which includes transitive Objc dependencies.
 
     Args:
@@ -455,6 +458,8 @@ def _objc_provider_with_dependencies(
         objc_provider_fields["sdk_framework"] = depset(sdk_framework)
     if weak_sdk_framework:
         objc_provider_fields["weak_sdk_framework"] = depset(weak_sdk_framework)
+    if link_inputs:
+        objc_provider_fields["link_inputs"] = depset(link_inputs)
 
     objc_provider_fields.update(**additional_objc_provider_fields)
     return apple_common.new_objc_provider(**objc_provider_fields)

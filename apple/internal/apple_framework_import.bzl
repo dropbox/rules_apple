@@ -265,6 +265,7 @@ def _apple_dynamic_framework_import_impl(ctx):
     objc_provider = framework_import_support.objc_provider_with_dependencies(
         additional_objc_providers = transitive_objc_providers,
         dynamic_framework_file = [] if ctx.attr.bundle_only else framework.binary_imports,
+        link_inputs = framework.bundling_imports,
     )
     providers.append(objc_provider)
 
@@ -281,6 +282,7 @@ def _apple_dynamic_framework_import_impl(ctx):
         kind = "dynamic",
         label = label,
         libraries = [] if ctx.attr.bundle_only else framework.binary_imports,
+        bundling_imports = framework.bundling_imports,
         swiftinterface_imports = framework.swift_interface_imports,
         swiftmodule_imports = framework.swift_module_imports,
     )
