@@ -126,7 +126,7 @@ class Bundler(object):
           self._write_entry(
             dest=f['dest'],
             data=f['link_name'].encode("utf-8"),
-            is_executable=False,
+            is_executable=True,
             is_symlink=True,
             out_zip=out_zip,
             compress=compress)
