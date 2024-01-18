@@ -117,9 +117,19 @@ class Bundler(object):
         self._add_zip_contents(z['src'], dest, out_zip, compress)
 
       for f in bundle_merge_files:
-        dest = os.path.join(bundle_path, f['dest'])
-        self._add_files(f['src'], dest, f.get('executable', False),
-                        f.get('contents_only', False), out_zip, compress)
+        src = f.get('src')
+        if src is not None:
+          dest = os.path.join(bundle_path, f['dest'])
+          self._add_files(f['src'], dest, f.get('executable', False),
+                          f.get('contents_only', False), out_zip, compress)
+        else:
+          self._write_entry(
+            dest=f['dest'],
+            data=f['link_name'].encode("utf-8"),
+            is_executable=False,
+            is_symlink=True,
+            out_zip=out_zip,
+            compress=compress)
 
       for z in root_merge_zips:
         self._add_zip_contents(z['src'], z['dest'], out_zip, compress)

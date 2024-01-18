@@ -36,19 +36,35 @@ def _framework_provider_partial_impl(
         objc_provider,
         rule_label):
     """Implementation for the framework provider partial."""
+    versioned = False
 
     # Create a directory structure that the linker can use to reference this
     # framework. It follows the pattern of
     # any_path/MyFramework.framework/MyFramework. The absolute path and files are
     # propagated using the AppleDynamicFrameworkInfo provider.
     framework_dir = paths.join("frameworks", "%s.framework" % bundle_name)
-    framework_file = actions.declare_file(
-        paths.join(framework_dir, bundle_name),
-    )
-    actions.symlink(
-        target_file = binary_artifact,
-        output = framework_file,
-    )
+    if not versioned:
+        framework_file = actions.declare_file(
+            paths.join(framework_dir, bundle_name),
+        )
+        actions.symlink(
+            target_file = binary_artifact,
+            output = framework_file,
+        )
+    else:
+        framework_file = actions.declare_symlink(
+            paths.join(framework_dir, bundle_name),
+        )
+        actions.symlink(
+            target_path = "Versions/Current/{}".format(bundle_name),
+            output = framework_file,
+        )
+
+        # XXX WIP, unclear if this is necessary
+        framework_resources_symlink = actions.declare_symlink(paths.join(framework_dir, "Resources"))
+        framework_current_symlink = actions.declare_symlink(paths.join(framework_dir, "Versions", "Current"))
+        framework_binary = actions.declare_file(paths.join(framework_dir, "Versions", "A", bundle_name))
+        framework_info = actions.declare_file(paths.join(framework_dir, "Versions", "A", "Resources", "Info.plist"))
 
     absolute_framework_dir = paths.join(
         bin_root_path,

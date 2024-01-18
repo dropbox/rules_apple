@@ -21,6 +21,10 @@ containing resource tuples as described in processor.bzl. Optionally, the struct
 """
 
 load(
+    "@build_bazel_rules_apple//apple/internal:apple_product_type.bzl",
+    "apple_product_type",
+)
+load(
     "@build_bazel_rules_apple//apple/internal/partials/support:resources_support.bzl",
     "resources_support",
 )
@@ -67,6 +71,7 @@ def _merge_root_infoplists(
         actions,
         out_infoplist,
         output_discriminator,
+        platform_prerequisites,
         rule_descriptor,
         rule_label,
         **kwargs):
@@ -102,12 +107,19 @@ def _merge_root_infoplists(
         output_discriminator = output_discriminator,
         output_plist = out_infoplist,
         output_pkginfo = out_pkginfo,
+        platform_prerequisites = platform_prerequisites,
         rule_descriptor = rule_descriptor,
         rule_label = rule_label,
         **kwargs
     )
 
-    return [(processor.location.content, None, depset(direct = files))]
+    location = processor.location.content
+    # in macos frameworks, info.plist is a resource
+    if (platform_prerequisites.platform_type == apple_common.platform_type.macos
+        and rule_descriptor.product_type == apple_product_type.framework):
+        location = processor.location.resource
+
+    return [(location, None, depset(direct = files))]
 
 def _locales_requested(*, config_vars):
     """Determines which locales to include when resource actions.

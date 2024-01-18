@@ -64,6 +64,10 @@ rule.
 """
 
 load(
+    "@build_bazel_rules_apple//apple/internal:apple_product_type.bzl",
+    "apple_product_type",
+)
+load(
     "@build_bazel_rules_apple//apple/internal:codesigning_support.bzl",
     "codesigning_support",
 )
@@ -162,6 +166,7 @@ def _archive_paths(
         bundle_extension,
         bundle_name,
         embedding = False,
+        platform_prerequisites,
         rule_descriptor,
         tree_artifact_is_enabled):
     """Returns the map of location type to final archive path."""
@@ -179,10 +184,19 @@ def _archive_paths(
                 bundle_name_with_extension,
             )
 
-    contents_path = paths.join(
-        bundle_path,
-        rule_descriptor.bundle_locations.bundle_relative_contents,
-    )
+    # WIP
+    if (platform_prerequisites.platform_type == apple_common.platform_type.macos
+            and rule_descriptor.product_type == apple_product_type.framework):
+        contents_path = paths.join(
+            bundle_path,
+            "Versions", "A",
+            rule_descriptor.bundle_locations.bundle_relative_contents,
+        )
+    else:
+        contents_path = paths.join(
+            bundle_path,
+            rule_descriptor.bundle_locations.bundle_relative_contents,
+        )
 
     # Map of location types to relative paths in the archive.
     return {
@@ -301,6 +315,7 @@ def _bundle_partial_outputs_files(
         bundle_extension = bundle_extension,
         bundle_name = bundle_name,
         embedding = embedding,
+        platform_prerequisites = platform_prerequisites,
         rule_descriptor = rule_descriptor,
         tree_artifact_is_enabled = tree_artifact_is_enabled,
     )
@@ -310,9 +325,17 @@ def _bundle_partial_outputs_files(
         platform_type = platform_type,
     )
 
+    is_versioned = (platform_prerequisites.platform_type == apple_common.platform_type.macos
+        and rule_descriptor.product_type == apple_product_type.framework)
+
+    if is_versioned:
+        control_files.append(
+            struct(link_name = "A", dest = paths.join(location_to_paths[_LOCATION_ENUM.bundle], "Versions", "Current")))
+
     processed_file_target_paths = {}
     for partial_output in partial_outputs:
         for location, parent_dir, files in getattr(partial_output, "bundle_files", []):
+            print("bundle files ", location, parent_dir, files)
             if tree_artifact_is_enabled and location == _LOCATION_ENUM.archive:
                 # Skip bundling archive related files, as we're only building the bundle directory.
                 continue
@@ -347,9 +370,37 @@ def _bundle_partial_outputs_files(
                              "is not allowed. check input file:\n%s") % (target_path, source.path),
                         )
                     processed_file_target_paths[target_path] = None
+
                 control_files.append(struct(src = source.path, dest = target_path))
 
+                if is_versioned:
+                    if location == _LOCATION_ENUM.binary:
+                        if source.is_directory:
+                            fail("unsupported with versioned frameworks")
+
+                        link_name = paths.join("Versions", "Current", source.basename)
+                        link_dest = paths.join(location_to_paths[_LOCATION_ENUM.bundle], source.basename)
+                        if link_dest in processed_file_target_paths:
+                            fail("link collision", link_dest)
+                        processed_file_target_paths[link_dest] = None
+                        control_files.append(struct(link_name = link_name, dest = link_dest))
+
+                    elif location_to_paths[location] != location_to_paths[_LOCATION_ENUM.content]:
+                        _versioned_bundle = {
+                            _LOCATION_ENUM.resource: rule_descriptor.bundle_locations.contents_relative_resources,
+                        }
+                        if location not in _versioned_bundle:
+                            fail("unsupported with versioned frameworks")
+                        location_basename = _versioned_bundle[location]
+                        link_name = paths.join("Versions", "Current", location_basename)
+                        link_dest = paths.join(location_to_paths[_LOCATION_ENUM.bundle], location_basename)
+                        if link_dest not in processed_file_target_paths:
+                            processed_file_target_paths[link_dest] = None
+                            control_files.append(struct(link_name = link_name, dest = link_dest))
+
         for location, parent_dir, zip_files in getattr(partial_output, "bundle_zips", []):
+            print("bundle zip", location, parent_dir, zip_files)
+
             if tree_artifact_is_enabled and location == _LOCATION_ENUM.archive:
                 # Skip bundling archive related files, as we're only building the bundle directory.
                 continue
@@ -369,6 +420,13 @@ def _bundle_partial_outputs_files(
             for source in sources:
                 target_path = paths.join(location_to_paths[location], parent_dir or "")
                 control_zips.append(struct(src = source.path, dest = target_path))
+
+    # if versioning, add symlinks
+    print("TARGET_PATHS", processed_file_target_paths)
+
+    # for location in [_LOCATION_ENUM.binary, _LOCATION_ENUM.resource]:
+    #     target_path = paths.join(location_to_paths[location]
+    # control_files.append(struct(link_path = "yo", dest = ""))
 
     post_processor = ipa_post_processor
     post_processor_path = ""
@@ -512,6 +570,7 @@ def _bundle_post_process_and_sign(
     archive_paths = _archive_paths(
         bundle_extension = bundle_extension,
         bundle_name = bundle_name,
+        platform_prerequisites = platform_prerequisites,
         rule_descriptor = rule_descriptor,
         tree_artifact_is_enabled = tree_artifact_is_enabled,
     )
@@ -637,6 +696,7 @@ def _bundle_post_process_and_sign(
                 bundle_extension = bundle_extension,
                 bundle_name = bundle_name,
                 embedding = True,
+                platform_prerequisites = platform_prerequisites,
                 rule_descriptor = rule_descriptor,
                 tree_artifact_is_enabled = tree_artifact_is_enabled,
             )
