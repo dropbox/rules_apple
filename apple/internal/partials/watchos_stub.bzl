@@ -63,7 +63,7 @@ def _watchos_stub_partial_impl(
             output = intermediate_file,
         )
         bundle_files.append(
-            (processor.location.bundle, "_WatchKitStub", depset([intermediate_file])),
+            (processor.location.content, "_WatchKitStub", depset([intermediate_file])),
         )
         providers.append(_AppleWatchosStubInfo(binary = intermediate_file))
 

@@ -96,7 +96,7 @@ def _app_intents_metadata_bundle_partial_impl(
         xcode_version_config = platform_prerequisites.xcode_version_config,
     )
 
-    bundle_location = processor.location.bundle
+    bundle_location = processor.location.content
     if str(platform_prerequisites.platform_type) == "macos":
         bundle_location = processor.location.resource
 

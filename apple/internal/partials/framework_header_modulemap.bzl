@@ -162,7 +162,7 @@ def _framework_header_modulemap_partial_impl(
     if umbrella_header:
         umbrella_header_name = umbrella_header.basename
         bundle_files.append(
-            (processor.location.bundle, "Headers", depset(hdrs + [umbrella_header])),
+            (processor.location.content, "Headers", depset(hdrs + [umbrella_header])),
         )
     elif hdrs:
         umbrella_header_name = "{}.h".format(bundle_name)
@@ -184,7 +184,7 @@ def _framework_header_modulemap_partial_impl(
         # which has the same name
         if len(hdrs) == 1 and hdrs[0].basename == umbrella_header_name:
             bundle_files.append(
-                (processor.location.bundle, "Headers", depset(hdrs)),
+                (processor.location.content, "Headers", depset(hdrs)),
             )
         else:
             _verify_headers(
@@ -193,7 +193,7 @@ def _framework_header_modulemap_partial_impl(
             )
 
             bundle_files.append(
-                (processor.location.bundle, "Headers", depset(hdrs + [umbrella_header_file])),
+                (processor.location.content, "Headers", depset(hdrs + [umbrella_header_file])),
             )
     else:
         umbrella_header_name = None
@@ -216,7 +216,7 @@ def _framework_header_modulemap_partial_impl(
             sdk_frameworks = sorted(sdk_frameworks.to_list() if sdk_frameworks else []),
             umbrella_header_name = umbrella_header_name,
         )
-        bundle_files.append((processor.location.bundle, "Modules", depset([modulemap_file])))
+        bundle_files.append((processor.location.content, "Modules", depset([modulemap_file])))
 
     return struct(
         bundle_files = bundle_files,

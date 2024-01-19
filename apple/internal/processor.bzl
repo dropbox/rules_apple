@@ -346,6 +346,9 @@ def _bundle_partial_outputs_files(
                     # Skip files for locales that aren't in the locales for the base resources.
                     continue
 
+            if location == _LOCATION_ENUM.bundle and parent_dir:
+                fail("parent_dir must be content relative")
+
             parent_dir_is_valid = _is_parent_dir_valid(
                 invalid_top_level_dirs = invalid_top_level_dirs,
                 parent_dir = parent_dir,
@@ -385,15 +388,21 @@ def _bundle_partial_outputs_files(
                         processed_file_target_paths[link_dest] = None
                         control_files.append(struct(link_name = link_name, dest = link_dest))
 
-                    elif location_to_paths[location] != location_to_paths[_LOCATION_ENUM.content]:
+                    elif location_to_paths[location] != location_to_paths[_LOCATION_ENUM.content] or parent_dir:
                         _versioned_bundle = {
                             _LOCATION_ENUM.resource: rule_descriptor.bundle_locations.contents_relative_resources,
                         }
-                        if location not in _versioned_bundle:
-                            fail("unsupported with versioned frameworks")
-                        location_basename = _versioned_bundle[location]
+                        if location == _LOCATION_ENUM.content and parent_dir:
+                            location_basename = parent_dir
+                        elif location not in _versioned_bundle:
+                            fail("location %r unsupported with versioned frameworks" % (location, ))
+                        else:
+                            location_basename = _versioned_bundle[location]
+
                         link_name = paths.join("Versions", "Current", location_basename)
                         link_dest = paths.join(location_to_paths[_LOCATION_ENUM.bundle], location_basename)
+
+                        print("XXXXXXXX", link_dest, link_name)
                         if link_dest not in processed_file_target_paths:
                             processed_file_target_paths[link_dest] = None
                             control_files.append(struct(link_name = link_name, dest = link_dest))

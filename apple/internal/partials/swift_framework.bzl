@@ -77,7 +77,7 @@ issue with a reproducible error case.
             output_discriminator = output_discriminator,
             swiftinterface = swift_module.swift.swiftinterface,
         )
-        bundle_files.append((processor.location.bundle, modules_parent, depset([bundle_interface])))
+        bundle_files.append((processor.location.content, modules_parent, depset([bundle_interface])))
 
         bundle_doc = swift_info_support.declare_swiftdoc(
             actions = actions,
@@ -86,7 +86,7 @@ issue with a reproducible error case.
             output_discriminator = output_discriminator,
             swiftdoc = swift_module.swift.swiftdoc,
         )
-        bundle_files.append((processor.location.bundle, modules_parent, depset([bundle_doc])))
+        bundle_files.append((processor.location.content, modules_parent, depset([bundle_doc])))
 
     swift_info_support.verify_found_module_name(
         bundle_name = expected_module_name,
@@ -101,7 +101,7 @@ issue with a reproducible error case.
             output_discriminator = output_discriminator,
             module_name = expected_module_name,
         )
-        bundle_files.append((processor.location.bundle, "Headers", depset([bundle_header])))
+        bundle_files.append((processor.location.content, "Headers", depset([bundle_header])))
 
         modulemap = swift_info_support.declare_modulemap(
             actions = actions,
@@ -110,7 +110,7 @@ issue with a reproducible error case.
             output_discriminator = output_discriminator,
             module_name = expected_module_name,
         )
-        bundle_files.append((processor.location.bundle, "Modules", depset([modulemap])))
+        bundle_files.append((processor.location.content, "Modules", depset([modulemap])))
 
     return struct(bundle_files = bundle_files)
 

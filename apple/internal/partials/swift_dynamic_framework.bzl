@@ -63,7 +63,7 @@ frameworks expect a single swift_library dependency with `module_name` set to th
             target_name = label_name,
         )
         actions.symlink(target_file = swiftdoc, output = bundle_doc)
-        bundle_files.append((processor.location.bundle, modules_parent, depset([bundle_doc])))
+        bundle_files.append((processor.location.content, modules_parent, depset([bundle_doc])))
 
     for arch, swiftmodule in swiftmodules.items():
         bundle_doc = intermediates.file(
@@ -73,7 +73,7 @@ frameworks expect a single swift_library dependency with `module_name` set to th
             target_name = label_name,
         )
         actions.symlink(target_file = swiftmodule, output = bundle_doc)
-        bundle_files.append((processor.location.bundle, modules_parent, depset([bundle_doc])))
+        bundle_files.append((processor.location.content, modules_parent, depset([bundle_doc])))
 
     if generated_header:
         bundle_header = intermediates.file(
@@ -83,7 +83,7 @@ frameworks expect a single swift_library dependency with `module_name` set to th
             target_name = label_name,
         )
         actions.symlink(target_file = generated_header, output = bundle_header)
-        bundle_files.append((processor.location.bundle, "Headers", depset([bundle_header])))
+        bundle_files.append((processor.location.content, "Headers", depset([bundle_header])))
 
     if modulemap_file:
         modulemap = intermediates.file(
@@ -93,7 +93,7 @@ frameworks expect a single swift_library dependency with `module_name` set to th
             target_name = label_name,
         )
         actions.symlink(target_file = modulemap_file, output = modulemap)
-        bundle_files.append((processor.location.bundle, "Modules", depset([modulemap])))
+        bundle_files.append((processor.location.content, "Modules", depset([modulemap])))
 
     return struct(
         bundle_files = bundle_files,

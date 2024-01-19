@@ -27,7 +27,7 @@ def _framework_headers_partial_impl(*, hdrs):
     """Implementation for the framework headers partial."""
     return struct(
         bundle_files = [
-            (processor.location.bundle, "Headers", depset(hdrs)),
+            (processor.location.content, "Headers", depset(hdrs)),
         ],
     )
 
