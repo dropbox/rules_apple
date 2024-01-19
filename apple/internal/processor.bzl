@@ -209,7 +209,7 @@ def _archive_paths(
             contents_path,
             rule_descriptor.bundle_locations.contents_relative_binary,
         ),
-        _LOCATION_ENUM.bundle: bundle_path,
+        _LOCATION_ENUM.bundle: bundle_path,  # TODO: make this private.
         _LOCATION_ENUM.content: contents_path,
         _LOCATION_ENUM.extension: paths.join(
             contents_path,
@@ -377,6 +377,7 @@ def _bundle_partial_outputs_files(
                 control_files.append(struct(src = source.path, dest = target_path))
 
                 if is_versioned:
+                    # need to create a symlink to the binary
                     if location == _LOCATION_ENUM.binary:
                         if source.is_directory:
                             fail("unsupported with versioned frameworks")
@@ -388,11 +389,13 @@ def _bundle_partial_outputs_files(
                         processed_file_target_paths[link_dest] = None
                         control_files.append(struct(link_name = link_name, dest = link_dest))
 
-                    elif location_to_paths[location] != location_to_paths[_LOCATION_ENUM.content] or parent_dir:
+                    # for all other locations, need to create a symlink to that folder
+                    elif location != _LOCATION_ENUM.content or parent_dir:
+                        # TODO: eliminate this in favor of returning bundle_path.
                         _versioned_bundle = {
                             _LOCATION_ENUM.resource: rule_descriptor.bundle_locations.contents_relative_resources,
                         }
-                        if location == _LOCATION_ENUM.content and parent_dir:
+                        if parent_dir:
                             location_basename = parent_dir
                         elif location not in _versioned_bundle:
                             fail("location %r unsupported with versioned frameworks" % (location, ))
