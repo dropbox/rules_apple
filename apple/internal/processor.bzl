@@ -186,54 +186,42 @@ def _archive_paths(
         bundle_path,
         rule_descriptor.bundle_locations.bundle_relative_contents,
     )
+    unversioned_contents_path = contents_path
+
+    version_name = ""
     if (platform_prerequisites.platform_type == apple_common.platform_type.macos
             and rule_descriptor.product_type == apple_product_type.framework):
+        version_name = "A"
+        # TODO: should probably be defined in the rule descriptor?
         contents_path = paths.join(
             contents_path,
-            "Versions", "A",
+            "Versions", version_name,
         )
 
     # Map of location types to relative paths in the archive.
     location_map = {
         _LOCATION_ENUM.archive: "",
         _LOCATION_ENUM.content: contents_path,
-
-        _LOCATION_ENUM.app_clip: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_app_clips,
-        ),
-        _LOCATION_ENUM.binary: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_binary,
-        ),
-        _LOCATION_ENUM.extension: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_extensions,
-        ),
-        _LOCATION_ENUM.framework: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_frameworks,
-        ),
-        _LOCATION_ENUM.plugin: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_plugins,
-        ),
-        _LOCATION_ENUM.resource: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_resources,
-        ),
-        _LOCATION_ENUM.watch: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_watch,
-        ),
-        _LOCATION_ENUM.xpc_service: paths.join(
-            contents_path,
-            rule_descriptor.bundle_locations.contents_relative_xpc_service,
-        ),
     }
+
+    location_relative_map = {
+        _LOCATION_ENUM.app_clip: rule_descriptor.bundle_locations.contents_relative_app_clips,
+        _LOCATION_ENUM.binary: rule_descriptor.bundle_locations.contents_relative_binary,
+        _LOCATION_ENUM.extension: rule_descriptor.bundle_locations.contents_relative_extensions,
+        _LOCATION_ENUM.framework: rule_descriptor.bundle_locations.contents_relative_frameworks,
+        _LOCATION_ENUM.plugin: rule_descriptor.bundle_locations.contents_relative_plugins,
+        _LOCATION_ENUM.resource: rule_descriptor.bundle_locations.contents_relative_resources,
+        _LOCATION_ENUM.watch: rule_descriptor.bundle_locations.contents_relative_watch,
+        _LOCATION_ENUM.xpc_service: rule_descriptor.bundle_locations.contents_relative_xpc_service
+    }
+    for location in location_relative_map:
+        location_map[location] = paths.join(contents_path, location_relative_map[location])
+
     return struct(
         bundle_path=bundle_path,
         location_to_paths=location_map,
+        bundle_version=version_name,
+        location_to_contents_relative=location_relative_map,
     )
 
 def _bundle_partial_outputs_files(
@@ -324,17 +312,10 @@ def _bundle_partial_outputs_files(
         platform_type = platform_type,
     )
 
-    is_versioned = (platform_prerequisites.platform_type == apple_common.platform_type.macos
-        and rule_descriptor.product_type == apple_product_type.framework)
-
-    if is_versioned:
-        control_files.append(
-            struct(link_name = "A", dest = paths.join(archive_paths.bundle_path, "Versions", "Current")))
-
     processed_file_target_paths = {}
+    processed_links = {}
     for partial_output in partial_outputs:
         for location, parent_dir, files in getattr(partial_output, "bundle_files", []):
-            print("bundle files ", location, parent_dir, files)
             if tree_artifact_is_enabled and location == _LOCATION_ENUM.archive:
                 # Skip bundling archive related files, as we're only building the bundle directory.
                 continue
@@ -372,43 +353,26 @@ def _bundle_partial_outputs_files(
 
                 control_files.append(struct(src = source.path, dest = target_path))
 
-                if is_versioned:
-                    # need to create a symlink to the binary
-                    if location == _LOCATION_ENUM.binary:
-                        if source.is_directory:
-                            fail("unsupported with versioned frameworks")
+                if archive_paths.bundle_version:
+                    # need to create symlink to some locations within versioned contents, if they
+                    # are materialized there.
+                    link = None
+                    if location == _LOCATION_ENUM.content and parent_dir:
+                        link = parent_dir
+                    else:
+                        # if location has specific contents relative folder name, use that
+                        contents_relative = archive_paths.location_to_contents_relative[location]
+                        if contents_relative:
+                            link = contents_relative
 
-                        link_name = paths.join("Versions", "Current", source.basename)
-                        link_dest = paths.join(archive_paths.bundle_path, source.basename)
-                        if link_dest in processed_file_target_paths:
-                            fail("link collision", link_dest)
-                        processed_file_target_paths[link_dest] = None
-                        control_files.append(struct(link_name = link_name, dest = link_dest))
+                        # can create symlink to a file for the binary only
+                        elif location == _LOCATION_ENUM.binary:
+                            link = source.basename
 
-                    # for all other locations, need to create a symlink to subfolder that contains the file
-                    elif location != _LOCATION_ENUM.content or parent_dir:
-                        # TODO: eliminate this in favor of returning bundle_path.
-                        _versioned_bundle = {
-                            _LOCATION_ENUM.resource: rule_descriptor.bundle_locations.contents_relative_resources,
-                        }
-                        if parent_dir:
-                            location_basename = parent_dir
-                        elif location not in _versioned_bundle:
-                            fail("location %r unsupported with versioned frameworks" % (location, ))
-                        else:
-                            location_basename = _versioned_bundle[location]
-
-                        link_name = paths.join("Versions", "Current", location_basename)
-                        link_dest = paths.join(archive_paths.bundle_path, location_basename)
-
-                        print("XXXXXXXX", link_dest, link_name)
-                        if link_dest not in processed_file_target_paths:
-                            processed_file_target_paths[link_dest] = None
-                            control_files.append(struct(link_name = link_name, dest = link_dest))
+                    if link:
+                        processed_links[link] = None
 
         for location, parent_dir, zip_files in getattr(partial_output, "bundle_zips", []):
-            print("bundle zip", location, parent_dir, zip_files)
-
             if tree_artifact_is_enabled and location == _LOCATION_ENUM.archive:
                 # Skip bundling archive related files, as we're only building the bundle directory.
                 continue
@@ -430,7 +394,26 @@ def _bundle_partial_outputs_files(
                 control_zips.append(struct(src = source.path, dest = target_path))
 
     # if versioning, add symlinks
-    print("TARGET_PATHS", processed_file_target_paths)
+    if archive_paths.bundle_version:
+        # main symlink from current version to 
+        control_files.append(
+            struct(
+                link_name = archive_paths.bundle_version,
+                dest = paths.join(archive_paths.bundle_path, "Versions", "Current")
+            ),
+        )
+
+        for link in processed_links:
+            link_dest = paths.join(archive_paths.bundle_path, link)
+            link_name = paths.join("Versions", "Current", link)
+            if link_dest in processed_file_target_paths:
+                fail(
+                    ("Multiple files would be placed at \"%s\" in the bundle, which " +
+                     "is not allowed (placing a symlink).") % link_dest,
+                )
+            print("XXXXXXXX", link_dest, "->", link_name)
+            processed_file_target_paths[link_dest] = None
+            control_files.append(struct(link_name = link_name, dest = link_dest))
 
     post_processor = ipa_post_processor
     post_processor_path = ""
