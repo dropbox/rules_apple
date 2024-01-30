@@ -2740,7 +2740,7 @@ def _macos_framework_impl(ctx):
 
     extra_linkopts = [
         "-dynamiclib",
-        "-Wl,-install_name,@rpath/{name}{extension}/{name}".format(
+        "-Wl,-install_name,@rpath/{name}{extension}/Versions/A/{name}".format(
             extension = bundle_extension,
             name = bundle_name,
         ),
