@@ -42,7 +42,6 @@ Location types can be:
     (i.e. the root of the zip/IPA file to generate).
   - app_clip: Files are to be placed in the AppClips section of the bundle.
   - binary: Files are to be placed in the binary section of the bundle.
-  - bundle: Files are to be placed at the root of the bundle.
   - content: Files are to be placed in the contents section of the bundle.
   - extension: Files are to be placed in the Extensions section of the bundle.
   - framework: Files are to be placed in the Frameworks section of the bundle.
@@ -110,7 +109,6 @@ _LOCATION_ENUM = struct(
     app_clip = "app_clip",
     archive = "archive",
     binary = "binary",
-    bundle = "bundle",
     content = "content",
     extension = "extension",
     framework = "framework",
@@ -184,33 +182,30 @@ def _archive_paths(
                 bundle_name_with_extension,
             )
 
-    # WIP
+    contents_path = paths.join(
+        bundle_path,
+        rule_descriptor.bundle_locations.bundle_relative_contents,
+    )
     if (platform_prerequisites.platform_type == apple_common.platform_type.macos
             and rule_descriptor.product_type == apple_product_type.framework):
         contents_path = paths.join(
-            bundle_path,
+            contents_path,
             "Versions", "A",
-            rule_descriptor.bundle_locations.bundle_relative_contents,
-        )
-    else:
-        contents_path = paths.join(
-            bundle_path,
-            rule_descriptor.bundle_locations.bundle_relative_contents,
         )
 
     # Map of location types to relative paths in the archive.
-    return {
+    location_map = {
+        _LOCATION_ENUM.archive: "",
+        _LOCATION_ENUM.content: contents_path,
+
         _LOCATION_ENUM.app_clip: paths.join(
             contents_path,
             rule_descriptor.bundle_locations.contents_relative_app_clips,
         ),
-        _LOCATION_ENUM.archive: "",
         _LOCATION_ENUM.binary: paths.join(
             contents_path,
             rule_descriptor.bundle_locations.contents_relative_binary,
         ),
-        _LOCATION_ENUM.bundle: bundle_path,  # TODO: make this private.
-        _LOCATION_ENUM.content: contents_path,
         _LOCATION_ENUM.extension: paths.join(
             contents_path,
             rule_descriptor.bundle_locations.contents_relative_extensions,
@@ -236,6 +231,10 @@ def _archive_paths(
             rule_descriptor.bundle_locations.contents_relative_xpc_service,
         ),
     }
+    return struct(
+        bundle_path=bundle_path,
+        location_to_paths=location_map,
+    )
 
 def _bundle_partial_outputs_files(
         *,
@@ -311,7 +310,7 @@ def _bundle_partial_outputs_files(
         platform_prerequisites = platform_prerequisites,
     )
 
-    location_to_paths = _archive_paths(
+    archive_paths = _archive_paths(
         bundle_extension = bundle_extension,
         bundle_name = bundle_name,
         embedding = embedding,
@@ -330,7 +329,7 @@ def _bundle_partial_outputs_files(
 
     if is_versioned:
         control_files.append(
-            struct(link_name = "A", dest = paths.join(location_to_paths[_LOCATION_ENUM.bundle], "Versions", "Current")))
+            struct(link_name = "A", dest = paths.join(archive_paths.bundle_path, "Versions", "Current")))
 
     processed_file_target_paths = {}
     for partial_output in partial_outputs:
@@ -346,9 +345,6 @@ def _bundle_partial_outputs_files(
                     # Skip files for locales that aren't in the locales for the base resources.
                     continue
 
-            if location == _LOCATION_ENUM.bundle and parent_dir:
-                fail("parent_dir must be content relative")
-
             parent_dir_is_valid = _is_parent_dir_valid(
                 invalid_top_level_dirs = invalid_top_level_dirs,
                 parent_dir = parent_dir,
@@ -363,7 +359,7 @@ def _bundle_partial_outputs_files(
             input_files.extend(sources)
 
             for source in sources:
-                target_path = paths.join(location_to_paths[location], parent_dir or "")
+                target_path = paths.join(archive_paths.location_to_paths[location], parent_dir or "")
 
                 if not source.is_directory:
                     target_path = paths.join(target_path, source.basename)
@@ -383,13 +379,13 @@ def _bundle_partial_outputs_files(
                             fail("unsupported with versioned frameworks")
 
                         link_name = paths.join("Versions", "Current", source.basename)
-                        link_dest = paths.join(location_to_paths[_LOCATION_ENUM.bundle], source.basename)
+                        link_dest = paths.join(archive_paths.bundle_path, source.basename)
                         if link_dest in processed_file_target_paths:
                             fail("link collision", link_dest)
                         processed_file_target_paths[link_dest] = None
                         control_files.append(struct(link_name = link_name, dest = link_dest))
 
-                    # for all other locations, need to create a symlink to that folder
+                    # for all other locations, need to create a symlink to subfolder that contains the file
                     elif location != _LOCATION_ENUM.content or parent_dir:
                         # TODO: eliminate this in favor of returning bundle_path.
                         _versioned_bundle = {
@@ -403,7 +399,7 @@ def _bundle_partial_outputs_files(
                             location_basename = _versioned_bundle[location]
 
                         link_name = paths.join("Versions", "Current", location_basename)
-                        link_dest = paths.join(location_to_paths[_LOCATION_ENUM.bundle], location_basename)
+                        link_dest = paths.join(archive_paths.bundle_path, location_basename)
 
                         print("XXXXXXXX", link_dest, link_name)
                         if link_dest not in processed_file_target_paths:
@@ -430,15 +426,11 @@ def _bundle_partial_outputs_files(
             input_files.extend(sources)
 
             for source in sources:
-                target_path = paths.join(location_to_paths[location], parent_dir or "")
+                target_path = paths.join(archive_paths.location_to_paths[location], parent_dir or "")
                 control_zips.append(struct(src = source.path, dest = target_path))
 
     # if versioning, add symlinks
     print("TARGET_PATHS", processed_file_target_paths)
-
-    # for location in [_LOCATION_ENUM.binary, _LOCATION_ENUM.resource]:
-    #     target_path = paths.join(location_to_paths[location]
-    # control_files.append(struct(link_path = "yo", dest = ""))
 
     post_processor = ipa_post_processor
     post_processor_path = ""
@@ -606,7 +598,7 @@ def _bundle_post_process_and_sign(
             codesigningtool = apple_mac_toolchain_info.resolved_codesigningtool.executable,
             entitlements = entitlements,
             features = features,
-            frameworks_path = archive_paths[_LOCATION_ENUM.framework],
+            frameworks_path = archive_paths.location_to_paths[_LOCATION_ENUM.framework],
             platform_prerequisites = platform_prerequisites,
             provisioning_profile = provisioning_profile,
             rule_descriptor = rule_descriptor,
@@ -662,8 +654,8 @@ def _bundle_post_process_and_sign(
             rule_descriptor = rule_descriptor,
         )
 
-        archive_codesigning_path = archive_paths[_LOCATION_ENUM.bundle]
-        frameworks_path = archive_paths[_LOCATION_ENUM.framework]
+        archive_codesigning_path = archive_paths.bundle_path
+        frameworks_path = archive_paths.location_to_paths[_LOCATION_ENUM.framework]
 
         output_archive_root_path = outputs.root_path_from_archive(archive = output_archive)
 
@@ -712,8 +704,8 @@ def _bundle_post_process_and_sign(
                 rule_descriptor = rule_descriptor,
                 tree_artifact_is_enabled = tree_artifact_is_enabled,
             )
-            embedding_archive_codesigning_path = embedding_archive_paths[_LOCATION_ENUM.bundle]
-            embedding_frameworks_path = embedding_archive_paths[_LOCATION_ENUM.framework]
+            embedding_archive_codesigning_path = embedding_archive_paths.bundle_path
+            embedding_frameworks_path = embedding_archive_paths.location_to_paths[_LOCATION_ENUM.framework]
             embedding_archive_root_path = outputs.root_path_from_archive(archive = embedding_archive)
             unprocessed_embedded_archive = intermediates.file(
                 actions = actions,
