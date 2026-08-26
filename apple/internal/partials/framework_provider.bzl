@@ -24,6 +24,7 @@ load(
 )
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("//apple/internal:processor.bzl", "processor")
 load("//apple/internal:providers.bzl", "new_appledynamicframeworkinfo")
 
 def _framework_provider_partial_impl(
@@ -36,7 +37,9 @@ def _framework_provider_partial_impl(
         cc_features,
         cc_info,
         cc_toolchain,
-        rule_label):
+        expose_cc_info,
+        rule_label,
+        versioned_layout):
     """Implementation for the framework provider partial."""
 
     # Create a directory structure that the linker can use to reference this
@@ -44,13 +47,38 @@ def _framework_provider_partial_impl(
     # any_path/MyFramework.framework/MyFramework. The absolute path and files are
     # propagated using the AppleDynamicFrameworkInfo provider.
     framework_dir = paths.join("frameworks", "%s.framework" % bundle_name)
-    framework_file = actions.declare_file(
-        paths.join(framework_dir, bundle_name),
-    )
-    actions.symlink(
-        target_file = binary_artifact,
-        output = framework_file,
-    )
+    bundle_symlinks = []
+    if versioned_layout:
+        framework_file = actions.declare_file(
+            paths.join(framework_dir, bundle_name),
+        )
+        framework_files = [framework_file]
+        actions.symlink(
+            target_file = binary_artifact,
+            output = framework_file,
+        )
+        bundle_symlinks = [
+            (processor.location.bundle, paths.join("Versions", "Current"), "A"),
+            (
+                processor.location.bundle,
+                bundle_name,
+                paths.join("Versions", "Current", bundle_name),
+            ),
+            (
+                processor.location.bundle,
+                "Resources",
+                paths.join("Versions", "Current", "Resources"),
+            ),
+        ]
+    else:
+        framework_file = actions.declare_file(
+            paths.join(framework_dir, bundle_name),
+        )
+        framework_files = [framework_file]
+        actions.symlink(
+            target_file = binary_artifact,
+            output = framework_file,
+        )
 
     absolute_framework_dir = paths.join(
         bin_root_path,
@@ -83,11 +111,36 @@ def _framework_provider_partial_impl(
         binary = binary_artifact,
         cc_info = wrapper_cc_info,
         framework_dirs = depset([absolute_framework_dir]),
-        framework_files = depset([framework_file]),
+        framework_files = depset(framework_files),
     )
 
+    providers = [framework_provider]
+    if expose_cc_info:
+        direct_linker_inputs = []
+        if not bundle_only:
+            direct_linker_inputs.append(
+                cc_common.create_linker_input(
+                    additional_inputs = framework_provider.framework_files,
+                    owner = rule_label,
+                    user_link_flags = [
+                        "-framework",
+                        bundle_name,
+                        "-F",
+                        paths.dirname(absolute_framework_dir),
+                    ],
+                ),
+            )
+        providers.append(
+            CcInfo(
+                linking_context = cc_common.create_linking_context(
+                    linker_inputs = depset(direct = direct_linker_inputs),
+                ),
+            ),
+        )
+
     return struct(
-        providers = [framework_provider],
+        bundle_symlinks = bundle_symlinks,
+        providers = providers,
     )
 
 def framework_provider_partial(
@@ -100,7 +153,9 @@ def framework_provider_partial(
         cc_features,
         cc_info,
         cc_toolchain,
-        rule_label):
+        rule_label,
+        expose_cc_info = False,
+        versioned_layout = False):
     """Constructor for the framework provider partial.
 
     This partial propagates the AppleDynamicFrameworkInfo provider required by
@@ -118,7 +173,9 @@ def framework_provider_partial(
       cc_info: The CcInfo provider containing information about the
           targets linked into the dynamic framework.
       cc_toolchain: The C++ toolchain to use.
+      expose_cc_info: Whether to expose a top-level CcInfo for direct C/Objective-C consumers.
       rule_label: The label of the target being analyzed.
+      versioned_layout: Whether the linkable framework directory uses the macOS versioned layout.
 
     Returns:
       A partial that returns the AppleDynamicFrameworkInfo provider used to link
@@ -135,5 +192,7 @@ def framework_provider_partial(
         cc_features = cc_features,
         cc_info = cc_info,
         cc_toolchain = cc_toolchain,
+        expose_cc_info = expose_cc_info,
         rule_label = rule_label,
+        versioned_layout = versioned_layout,
     )

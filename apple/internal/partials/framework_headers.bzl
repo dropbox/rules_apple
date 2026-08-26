@@ -23,20 +23,21 @@ load(
     "processor",
 )
 
-def _framework_headers_partial_impl(*, hdrs):
+def _framework_headers_partial_impl(*, bundle_location, hdrs):
     """Implementation for the framework headers partial."""
     return struct(
         bundle_files = [
-            (processor.location.bundle, "Headers", depset(hdrs)),
+            (bundle_location, "Headers", depset(hdrs)),
         ],
     )
 
-def framework_headers_partial(*, hdrs):
+def framework_headers_partial(*, bundle_location = processor.location.bundle, hdrs):
     """Constructor for the framework headers partial.
 
     This partial bundles the headers for dynamic frameworks.
 
     Args:
+      bundle_location: The processor location for the framework's headers.
       hdrs: The list of headers to bundle.
 
     Returns:
@@ -44,5 +45,6 @@ def framework_headers_partial(*, hdrs):
     """
     return partial.make(
         _framework_headers_partial_impl,
+        bundle_location = bundle_location,
         hdrs = hdrs,
     )

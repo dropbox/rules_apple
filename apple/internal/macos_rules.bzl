@@ -2980,7 +2980,7 @@ def _macos_framework_impl(ctx):
 
     extra_linkopts = [
         "-dynamiclib",
-        "-Wl,-install_name,@rpath/{name}{extension}/{name}".format(
+        "-Wl,-install_name,@rpath/{name}{extension}/Versions/A/{name}".format(
             extension = bundle_extension,
             name = bundle_name,
         ),
@@ -3096,7 +3096,10 @@ def _macos_framework_impl(ctx):
             rule_label = label,
             targets_to_validate = ctx.attr.frameworks,
         ),
-        partials.framework_headers_partial(hdrs = ctx.files.hdrs),
+        partials.framework_headers_partial(
+            bundle_location = processor.location.content,
+            hdrs = ctx.files.hdrs,
+        ),
         partials.framework_provider_partial(
             actions = actions,
             bin_root_path = bin_root_path,
@@ -3106,7 +3109,9 @@ def _macos_framework_impl(ctx):
             cc_features = cc_features,
             cc_info = link_result.cc_info,
             cc_toolchain = cc_toolchain,
+            expose_cc_info = True,
             rule_label = label,
+            versioned_layout = True,
         ),
         partials.resources_partial(
             actions = actions,
@@ -3119,6 +3124,7 @@ def _macos_framework_impl(ctx):
             launch_storyboard = None,
             platform_prerequisites = platform_prerequisites,
             resource_deps = resource_deps,
+            root_infoplist_location = processor.location.resource,
             rule_descriptor = rule_descriptor,
             rule_label = label,
             targets_to_avoid = ctx.attr.frameworks,
@@ -3629,10 +3635,11 @@ def _macos_static_framework_impl(ctx):
     ] + processor_result.providers
 
 macos_framework = rule_factory.create_apple_rule(
-    doc = """Builds and bundles an macOS Dynamic Framework.
+    doc = """Builds and bundles a versioned macOS dynamic framework.
 
-To use this framework for your app and extensions, list it in the `frameworks` attributes
-of those `macos_application` and/or `macos_extension` rules.""",
+To link this framework through a C, C++, or Objective-C dependency, list it in `deps`. To bundle the
+framework in an app or extension, list it in the `frameworks` attribute of the corresponding
+`macos_application` or `macos_extension` rule.""",
     implementation = _macos_framework_impl,
     predeclared_outputs = {"archive": "%{name}.zip"},
     attrs = [
