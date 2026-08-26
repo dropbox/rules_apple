@@ -141,6 +141,13 @@ _DEFAULT_MACOS_BUNDLE_LOCATIONS = _describe_bundle_locations(
     contents_relative_resources = "Resources",
 )
 
+_MACOS_FRAMEWORK_BUNDLE_LOCATIONS = _describe_bundle_locations(
+    bundle_relative_contents = "Versions/A",
+    contents_relative_binary = "",
+    contents_relative_frameworks = "Frameworks",
+    contents_relative_resources = "Resources",
+)
+
 # Kernel extensions on iOS are not bundled in the same way as other Apple artifacts.
 _DEFAULT_IOS_KERNEL_EXTENSION_BUNDLE_LOCATIONS = _describe_bundle_locations(
     bundle_relative_contents = "",
@@ -486,6 +493,7 @@ _RULE_TYPE_DESCRIPTORS = {
         apple_product_type.framework: _describe_rule_type(
             allowed_device_families = ["mac"],
             bundle_extension = ".framework",
+            bundle_locations = _MACOS_FRAMEWORK_BUNDLE_LOCATIONS,
             bundle_package_type = bundle_package_type.framework,
             codesigning_exceptions = _CODESIGNING_EXCEPTIONS.sign_with_provisioning_profile,
             product_type = apple_product_type.framework,

@@ -41,6 +41,9 @@ following keys:
       into the bundle; and "dest", the path inside the bundle where the ZIPs
       contents should be placed. The destination path is relative to
       `bundle_path`.
+  bundle_symlinks: A list of dictionaries representing symbolic links to create
+      in the bundle. Each dictionary contains two fields: "dest", the path of
+      the symlink relative to `bundle_path`; and "target", its relative target.
   output: The path to the uncompressed ZIP archive that should be created with
       the merged bundle contents.
   root_merge_zips: A list of dictionaries representing the ZIP archives whose
@@ -63,6 +66,13 @@ import zipfile
 BUNDLE_CONFLICT_MSG_TEMPLATE = (
     'Cannot place two files at the same location %r in the archive')
 
+INVALID_BUNDLE_PATH_MSG_TEMPLATE = (
+    'Cannot place bundle entry %r outside the bundle root')
+
+INVALID_SYMLINK_TARGET_MSG_TEMPLATE = (
+    'Cannot create bundle symlink %r -> %r because the target escapes the '
+    'bundle root')
+
 
 class BundleConflictError(ValueError):
   """Raised when two different files would be bundled in the same location.
@@ -77,6 +87,24 @@ class BundleConflictError(ValueError):
       msg: The message for the error.
     """
     ValueError.__init__(self, msg)
+
+
+class BundlePathError(ValueError):
+  """Raised when a bundle path escapes the bundle root."""
+
+  def __init__(self, dest):
+    self.dest = dest
+    ValueError.__init__(self, INVALID_BUNDLE_PATH_MSG_TEMPLATE % dest)
+
+
+class BundleSymlinkError(ValueError):
+  """Raised when a bundle symlink target escapes the bundle root."""
+
+  def __init__(self, dest, target):
+    self.dest = dest
+    self.target = target
+    ValueError.__init__(
+        self, INVALID_SYMLINK_TARGET_MSG_TEMPLATE % (dest, target))
 
 
 class BadZipFileError(Exception):
@@ -95,8 +123,8 @@ class Bundler(object):
     """
     self._control = control
 
-    # Keep track of hashes of each entry; this will be faster than pulling the
-    # data back out of the archive as it's written.
+    # Keep track of each entry's content hash and file kind; this will be faster
+    # than pulling the data back out of the archive as it's written.
     self._entry_hashes = {}
 
   def run(self):
@@ -108,6 +136,7 @@ class Bundler(object):
     bundle_path = self._control.get('bundle_path', '')
     bundle_merge_files = self._control.get('bundle_merge_files', [])
     bundle_merge_zips = self._control.get('bundle_merge_zips', [])
+    bundle_symlinks = self._control.get('bundle_symlinks', [])
     root_merge_zips = self._control.get('root_merge_zips', [])
     compress = self._control.get('compress', False)
 
@@ -120,6 +149,14 @@ class Bundler(object):
         dest = os.path.join(bundle_path, f['dest'])
         self._add_files(f['src'], dest, f.get('executable', False),
                         f.get('contents_only', False), out_zip, compress)
+
+      for symlink in bundle_symlinks:
+        self._add_symlink(
+            bundle_path=bundle_path,
+            dest=symlink['dest'],
+            target=symlink['target'],
+            out_zip=out_zip,
+            compress=compress)
 
       for z in root_merge_zips:
         self._add_zip_contents(z['src'], z['dest'], out_zip, compress)
@@ -165,6 +202,30 @@ class Bundler(object):
       with open(src, 'rb') as f:
         self._write_entry(
             dest=dest, data=f.read(), is_executable=fexec, out_zip=out_zip, compress=compress)
+
+  def _add_symlink(self, bundle_path, dest, target, out_zip, compress):
+    """Adds a validated symbolic link to the ZIP archive."""
+    if '..' in dest.split('/'):
+      raise BundlePathError(dest)
+    if os.path.isabs(target) or '..' in target.split('/'):
+      raise BundleSymlinkError(dest, target)
+
+    validation_root = os.path.join(os.sep, '__bundle_root__')
+    full_dest = os.path.normpath(os.path.join(validation_root, dest))
+    if os.path.commonpath([validation_root, full_dest]) != validation_root:
+      raise BundlePathError(dest)
+
+    full_target = os.path.normpath(
+        os.path.join(os.path.dirname(full_dest), target))
+    if os.path.commonpath([validation_root, full_target]) != validation_root:
+      raise BundleSymlinkError(dest, target)
+
+    self._write_entry(
+        dest=os.path.normpath(os.path.join(bundle_path, dest)),
+        data=target.encode('utf-8'),
+        is_symlink=True,
+        out_zip=out_zip,
+        compress=compress)
 
   def _add_zip_contents(self, src, dest, out_zip, compress):
     """Adds the contents of another ZIP file to the output ZIP archive.
@@ -233,14 +294,14 @@ class Bundler(object):
       BundleConflictError: If two files with different content would be placed
           at the same location in the ZIP file.
     """
-    new_hash = hashlib.md5(data).digest()
-    existing_hash = self._entry_hashes.get(dest)
-    if existing_hash:
-      if existing_hash == new_hash:
+    new_entry = (hashlib.md5(data).digest(), is_symlink)
+    existing_entry = self._entry_hashes.get(dest)
+    if existing_entry:
+      if existing_entry == new_entry:
         return
       raise BundleConflictError(BUNDLE_CONFLICT_MSG_TEMPLATE % dest)
 
-    self._entry_hashes[dest] = new_hash
+    self._entry_hashes[dest] = new_entry
 
     zipinfo = zipfile.ZipInfo(dest)
     if compress:
@@ -260,7 +321,7 @@ class Bundler(object):
         zipinfo.external_attr |= 0o111 << 16
 
     if is_symlink:
-      zipinfo.external_attr |= stat.S_IFLNK << 16
+      zipinfo.external_attr = (stat.S_IFLNK | 0o755) << 16
 
     out_zip.writestr(zipinfo, data)
 

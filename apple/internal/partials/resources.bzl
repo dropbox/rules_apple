@@ -67,6 +67,8 @@ def _merge_root_infoplists(
         actions,
         out_infoplist,
         output_discriminator,
+        platform_prerequisites,
+        root_infoplist_location,
         rule_descriptor,
         rule_label,
         **kwargs):
@@ -77,6 +79,7 @@ def _merge_root_infoplists(
       out_infoplist: Reference to the output Info plist.
       output_discriminator: A string to differentiate between different target intermediate files
           or `None`.
+      root_infoplist_location: The processor location for the root Info.plist and PkgInfo.
       rule_descriptor: A rule descriptor for platform and product types from the rule context.
       rule_label: The label of the target being analyzed.
       **kwargs: Extra parameters forwarded into the merge_root_infoplists action.
@@ -102,12 +105,13 @@ def _merge_root_infoplists(
         output_discriminator = output_discriminator,
         output_plist = out_infoplist,
         output_pkginfo = out_pkginfo,
+        platform_prerequisites = platform_prerequisites,
         rule_descriptor = rule_descriptor,
         rule_label = rule_label,
         **kwargs
     )
 
-    return [(processor.location.content, None, depset(direct = files))]
+    return [(root_infoplist_location, None, depset(direct = files))]
 
 def _locales_requested(*, build_setting_locales_to_include, locales_to_include, config_vars):
     """Determines which locales to include when resource actions.
@@ -197,6 +201,7 @@ def _resources_partial_impl(
         platform_prerequisites,
         primary_icon_name,
         resource_deps,
+        root_infoplist_location,
         rule_descriptor,
         rule_label,
         swift_module,
@@ -364,6 +369,7 @@ def _resources_partial_impl(
                 output_discriminator = output_discriminator,
                 platform_prerequisites = platform_prerequisites,
                 plisttool = apple_mac_toolchain_info.plisttool,
+                root_infoplist_location = root_infoplist_location,
                 rule_descriptor = rule_descriptor,
                 rule_label = rule_label,
                 version = version,
@@ -395,6 +401,7 @@ def resources_partial(
         platform_prerequisites,
         primary_icon_name = None,
         resource_deps,
+        root_infoplist_location = processor.location.content,
         rule_descriptor,
         rule_label,
         swift_module = None,
@@ -437,6 +444,7 @@ def resources_partial(
         primary_icon_name: An optional String to identify the name of the primary app icon when
             alternate app icons have been provided for the app.
         resource_deps: A list of dependencies that the resource aspect has been applied to.
+        root_infoplist_location: The processor location for the root Info.plist and PkgInfo.
         rule_descriptor: A rule descriptor for platform and product types from the rule context.
         rule_label: The label of the target being analyzed.
         swift_module: Module name to be used for xibs, storyboards and datamodels compilation.
@@ -471,6 +479,7 @@ def resources_partial(
         platform_prerequisites = platform_prerequisites,
         primary_icon_name = primary_icon_name,
         resource_deps = resource_deps,
+        root_infoplist_location = root_infoplist_location,
         rule_descriptor = rule_descriptor,
         rule_label = rule_label,
         swift_module = swift_module,

@@ -30,6 +30,11 @@ All partials handled by this processor must follow this API:
       (location_type, parent_dir, files) where location_type is a field of the
       location enum and each file is a ZIP file. The files extracted from the
       ZIPs are then placed at the given location in the output bundle.
+    * bundle_symlinks: Contains tuples of the format
+      (location_type, link_path, target) where location_type is a field of the
+      location enum, link_path is relative to that location, and target is a
+      relative path interpreted from the link's parent directory. Neither
+      link_path nor target may contain a ".." path segment.
     * output_files: Depset of `File`s that should be returned as outputs of the
       target.
     * output_groups: Dictionary of output group names to depset of Files that should be returned in
@@ -286,6 +291,7 @@ def _bundle_partial_outputs_files(
     ) and rule_descriptor.allows_locale_trimming and not requested_locales
 
     control_files = []
+    control_symlinks = []
     control_zips = []
     input_files = []
     base_locales = ["Base"]
@@ -357,6 +363,23 @@ def _bundle_partial_outputs_files(
                     processed_file_target_paths[target_path] = None
                 control_files.append(struct(src = source.path, dest = target_path))
 
+        for location, relative_path, target in getattr(partial_output, "bundle_symlinks", []):
+            if tree_artifact_is_enabled and location == _LOCATION_ENUM.archive:
+                # Skip bundling archive related links, as we're only building the bundle directory.
+                continue
+
+            target_path = paths.join(location_to_paths[location], relative_path)
+            if target_path in processed_file_target_paths:
+                fail(
+                    "Multiple files would be placed at \"%s\" in the bundle, which is not allowed." %
+                    target_path,
+                )
+            processed_file_target_paths[target_path] = None
+            control_symlinks.append(struct(
+                dest = target_path,
+                target = target,
+            ))
+
         for location, parent_dir, zip_files in getattr(partial_output, "bundle_zips", []):
             if tree_artifact_is_enabled and location == _LOCATION_ENUM.archive:
                 # Skip bundling archive related files, as we're only building the bundle directory.
@@ -387,6 +410,7 @@ def _bundle_partial_outputs_files(
     control = struct(
         bundle_merge_files = control_files,
         bundle_merge_zips = control_zips,
+        bundle_symlinks = control_symlinks,
         output = output_file.path,
         code_signing_commands = codesigning_command or "",
         post_processor = post_processor_path,

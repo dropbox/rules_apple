@@ -38,6 +38,9 @@ following keys:
       fields: "src", the path of the archive whose contents should be merged
       into the bundle; and "dest", the path inside the bundle where the ZIPs
       contents should be placed.
+  bundle_symlinks: A list of dictionaries representing symbolic links to create
+      in the bundle. Each dictionary contains two fields: "dest", the path of
+      the symlink; and "target", its relative target.
   code_signing_commands: An optional list of shell commands that should be
       executed to sign the bundle.
   output: The path to the directory (which will be created/cleared) that will
@@ -153,6 +156,7 @@ class Bundler(object):
 
     bundle_merge_files = self._control.get('bundle_merge_files', [])
     bundle_merge_zips = self._control.get('bundle_merge_zips', [])
+    bundle_symlinks = self._control.get('bundle_symlinks', [])
 
     # Clear the output directory if it already exists.
     if os.path.exists(output_path):
@@ -165,6 +169,9 @@ class Bundler(object):
     for f in bundle_merge_files:
       self._add_files(f['src'], f['dest'], f.get('executable', False),
                       output_path)
+
+    for symlink in bundle_symlinks:
+      self._write_symlink(symlink['dest'], symlink['target'], output_path)
 
     os.chmod(output_path, 0o755)
 
@@ -278,9 +285,11 @@ class Bundler(object):
     """
     full_dest = os.path.join(bundle_root, dest)
     self._validate_dest_in_bundle(full_dest, bundle_root, dest)
-    if (os.path.isfile(full_dest) and
-        not filecmp.cmp(full_dest, src, shallow=False)):
-      raise BundleConflictError(dest)
+    if os.path.lexists(full_dest):
+      if (os.path.islink(full_dest) or
+          not os.path.isfile(full_dest) or
+          not filecmp.cmp(full_dest, src, shallow=False)):
+        raise BundleConflictError(dest)
 
     self._makedirs_safely(os.path.dirname(full_dest))
     global _USE_CLONEFILE
@@ -327,7 +336,9 @@ class Bundler(object):
     """
     full_dest = os.path.join(bundle_root, dest)
     self._validate_dest_in_bundle(full_dest, bundle_root, dest)
-    if os.path.isfile(full_dest):
+    if os.path.lexists(full_dest):
+      if os.path.islink(full_dest) or not os.path.isfile(full_dest):
+        raise BundleConflictError(dest)
       with open(full_dest, "rb") as f:
         if f.read() != data:
           raise BundleConflictError(dest)
@@ -343,6 +354,9 @@ class Bundler(object):
 
   def _validate_dest_in_bundle(self, full_dest, bundle_root, dest):
     """Validates that a destination path resolves within the bundle root."""
+    if ".." in dest.split("/"):
+      raise BundlePathError(dest)
+
     bundle_root_real = os.path.realpath(bundle_root)
     dest_real = os.path.realpath(full_dest)
     if os.path.commonpath([bundle_root_real, dest_real]) != bundle_root_real:
@@ -350,7 +364,7 @@ class Bundler(object):
 
   def _validate_symlink_target(self, full_dest, target, bundle_root, dest):
     """Validates that a symlink target does not escape the bundle root."""
-    if os.path.isabs(target):
+    if os.path.isabs(target) or ".." in target.split("/"):
       raise BundleSymlinkError(dest, target)
 
     bundle_root_real = os.path.realpath(bundle_root)
