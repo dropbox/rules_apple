@@ -117,6 +117,97 @@ class BundlerExperimentalTest(unittest.TestCase):
     self._assert_symlink(os.path.join(
         bundled_framework, "Resources"), "Versions/Current/Resources")
 
+  def test_bundle_symlinks(self):
+    output = self._run_bundler({
+        "bundle_symlinks": [
+            {"dest": "Foo.framework/Versions/Current", "target": "A"},
+            {
+                "dest": "Foo.framework/Foo",
+                "target": "Versions/Current/Foo",
+            },
+            {
+                "dest": "Foo.framework/Resources",
+                "target": "Versions/Current/Resources",
+            },
+        ],
+    })
+
+    bundled_framework = os.path.join(output, "Foo.framework")
+    self._assert_symlink(os.path.join(
+        bundled_framework, "Versions/Current"), "A")
+    self._assert_symlink(os.path.join(
+        bundled_framework, "Foo"), "Versions/Current/Foo")
+    self._assert_symlink(os.path.join(
+        bundled_framework, "Resources"), "Versions/Current/Resources")
+
+  def test_bundle_symlinks_reject_invalid_paths_and_targets(self):
+    for dest in ["../outside", "Versions/../Current"]:
+      with self.subTest(dest=dest):
+        with self.assertRaises(bundletool_experimental.BundlePathError):
+          self._run_bundler({
+              "bundle_symlinks": [
+                  {"dest": dest, "target": "target"},
+              ],
+          })
+
+    for target in ["/tmp/outside", "../../outside", "Versions/../A"]:
+      with self.subTest(target=target):
+        with self.assertRaises(bundletool_experimental.BundleSymlinkError):
+          self._run_bundler({
+              "bundle_symlinks": [
+                  {"dest": "Versions/Current", "target": target},
+              ],
+          })
+
+  def test_bundle_symlink_conflicts_with_existing_regular_file(self):
+    regular_file = self._scratch_file("regular", "content")
+    with self.assertRaises(bundletool_experimental.BundleConflictError):
+      self._run_bundler({
+          "bundle_merge_files": [{
+              "src": regular_file,
+              "dest": "Alias",
+          }],
+          "bundle_symlinks": [{
+              "dest": "Alias",
+              "target": "Target",
+          }],
+      })
+
+  def test_bundle_regular_file_conflicts_with_existing_symlink(self):
+    symlink_zip = os.path.join(self._scratch_dir, "symlink.zip")
+    with zipfile.ZipFile(symlink_zip, "w") as zf:
+      self._add_zip_symlink(zf, "Alias", "Target")
+
+    regular_file = self._scratch_file("regular", "content")
+    with self.assertRaises(bundletool_experimental.BundleConflictError):
+      self._run_bundler({
+          "bundle_merge_zips": [{
+              "src": symlink_zip,
+              "dest": "",
+          }],
+          "bundle_merge_files": [{
+              "src": regular_file,
+              "dest": "Alias",
+          }],
+      })
+
+  def test_bundle_zip_file_conflicts_with_existing_symlink(self):
+    symlink_zip = os.path.join(self._scratch_dir, "symlink.zip")
+    with zipfile.ZipFile(symlink_zip, "w") as zf:
+      self._add_zip_symlink(zf, "Alias", "Target")
+
+    regular_zip = os.path.join(self._scratch_dir, "regular.zip")
+    with zipfile.ZipFile(regular_zip, "w") as zf:
+      self._add_zip_file(zf, "Alias", "content")
+
+    with self.assertRaises(bundletool_experimental.BundleConflictError):
+      self._run_bundler({
+          "bundle_merge_zips": [
+              {"src": symlink_zip, "dest": ""},
+              {"src": regular_zip, "dest": ""},
+          ],
+      })
+
   def test_bundle_merge_zips_preserves_symlink_entries(self):
     framework_zip = self._scratch_zip("Foo.zip")
 

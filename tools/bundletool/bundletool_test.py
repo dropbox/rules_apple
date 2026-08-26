@@ -161,6 +161,60 @@ class BundlerTest(unittest.TestCase):
       self._assert_zip_contains(z, 'Payload/foo.app/foo.txt')
       self._assert_zip_contains(z, 'Payload/foo.app/bar.txt')
 
+  def test_bundle_symlinks(self):
+    out_zip = _run_bundler({
+        'bundle_path': 'Payload/foo.app',
+        'bundle_symlinks': [
+            {'dest': 'Versions/Current', 'target': 'A'},
+            {'dest': 'foo', 'target': 'Versions/Current/foo'},
+            {'dest': 'Resources', 'target': 'Versions/Current/Resources'},
+        ]
+    })
+    with zipfile.ZipFile(out_zip, 'r') as z:
+      expected_links = {
+          'Payload/foo.app/Versions/Current': b'A',
+          'Payload/foo.app/foo': b'Versions/Current/foo',
+          'Payload/foo.app/Resources': b'Versions/Current/Resources',
+      }
+      for path, target in expected_links.items():
+        zipinfo = z.getinfo(path)
+        self.assertEqual(
+            stat.S_IFLNK | 0o755,
+            zipinfo.external_attr >> 16,
+        )
+        self.assertEqual(target, z.read(zipinfo))
+
+  def test_bundle_symlinks_reject_invalid_paths_and_targets(self):
+    for dest in ['../outside', 'Versions/../Current']:
+      with self.subTest(dest=dest):
+        with self.assertRaises(bundletool.BundlePathError):
+          _run_bundler({
+              'bundle_symlinks': [
+                  {'dest': dest, 'target': 'target'},
+              ],
+          })
+
+    for target in ['/tmp/outside', '../../outside', 'Versions/../A']:
+      with self.subTest(target=target):
+        with self.assertRaises(bundletool.BundleSymlinkError):
+          _run_bundler({
+              'bundle_symlinks': [
+                  {'dest': 'Versions/Current', 'target': target},
+              ],
+          })
+
+  def test_bundle_symlink_conflicts_with_regular_file(self):
+    with self.assertRaises(bundletool.BundleConflictError):
+      _run_bundler({
+          'bundle_merge_files': [{
+              'src': self._scratch_file('regular', 'A'),
+              'dest': 'Versions/Current',
+          }],
+          'bundle_symlinks': [
+              {'dest': 'Versions/Current', 'target': 'A'},
+          ],
+      })
+
   def test_bundle_merge_files_with_executable(self):
     out_zip = _run_bundler({
         'bundle_path': 'Payload/foo.app',
