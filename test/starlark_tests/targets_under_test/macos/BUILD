@@ -1878,6 +1878,28 @@ macos_framework(
     ],
 )
 
+objc_library(
+    name = "objc_lib_with_direct_fmwk_dep",
+    srcs = ["//test/starlark_tests/resources:direct_framework_dependency.m"],
+    tags = common.fixture_tags,
+    deps = [":fmwk"],
+    alwayslink = True,
+)
+
+macos_application(
+    name = "app_with_objc_lib_with_direct_fmwk_dep",
+    bundle_id = "com.google.example",
+    infoplists = [
+        "//test/starlark_tests/resources:Info.plist",
+    ],
+    minimum_os_version = common.min_os_macos.baseline,
+    tags = common.fixture_tags,
+    deps = [
+        ":objc_lib_with_direct_fmwk_dep",
+        "//test/starlark_tests/resources:objc_main_lib",
+    ],
+)
+
 macos_framework(
     name = "bundle_only_fmwk",
     hdrs = ["//test/starlark_tests/resources:common.h"],

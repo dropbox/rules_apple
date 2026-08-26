@@ -69,6 +69,7 @@ def archive_contents_test(
         macho_load_commands_not_contain = [],
         assert_directory_file_count = {},
         assert_file_permissions = {},
+        assert_symlink_targets = {},
         **kwargs):
     """Macro for calling the apple_verification_test with archive_contents_test.sh.
 
@@ -131,6 +132,8 @@ def archive_contents_test(
         assert_file_permissions: Optional; key/value pairs to test file permissions.
             Keys are paths within the bundle, values are the expected numerical file permissions.
             See `assert_permissions_equal` to see supported file permissions types.
+        assert_symlink_targets: Optional; key/value pairs to test symbolic links.
+            Keys are paths within the bundle, values are the expected relative link targets.
         **kwargs: Other arguments are passed through to the apple_verification_test rule.
     """
     if any([plist_test_file, plist_test_values]) and not all([plist_test_file, plist_test_values]):
@@ -189,6 +192,7 @@ def archive_contents_test(
         binary_test_file,
         assert_directory_file_count,
         assert_file_permissions,
+        assert_symlink_targets,
     ]):
         fail("There are no tests for the archive")
 
@@ -201,6 +205,10 @@ def archive_contents_test(
         assert_file_permissions,
         separator = ":",
     )
+    assert_symlink_targets_list = _dict_to_space_separated_string_array(
+        assert_symlink_targets,
+        separator = ":",
+    )
 
     apple_verification_test(
         name = name,
@@ -208,6 +216,7 @@ def archive_contents_test(
         env = {
             "ASSERT_DIRECTORY_FILE_COUNT": assert_directory_file_count_list,
             "ASSERT_FILE_PERMISSIONS": assert_file_permissions_list,
+            "ASSERT_SYMLINK_TARGETS": assert_symlink_targets_list,
             "ASSET_CATALOG_CONTAINS": asset_catalog_test_contains,
             "ASSET_CATALOG_FILE": [asset_catalog_test_file],
             "ASSET_CATALOG_NOT_CONTAINS": asset_catalog_test_not_contains,

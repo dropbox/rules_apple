@@ -92,6 +92,8 @@ newline=$'\n'
 #      specifies a bundle file path, and value is the expected numerical file
 #      permissions bits. See apple_shell_testutils' assert_permissions_equal
 #      for supported formats.
+#  - ASSERT_SYMLINK_TARGETS: Array of "KEY:VALUE" formatted strings where key
+#      specifies a symbolic link path and value is its expected relative target.
 
 
 something_tested=false
@@ -432,6 +434,23 @@ if [[ -n "${ASSERT_FILE_PERMISSIONS-}" ]]; then
 
     expanded_path=$(eval echo "$path")
     assert_permissions_equal "$expanded_path" "$expected_permissions"
+  done
+fi
+
+if [[ -n "${ASSERT_SYMLINK_TARGETS-}" ]]; then
+  for test_values in "${ASSERT_SYMLINK_TARGETS[@]}"
+  do
+    something_tested=true
+    IFS=':' read -r path expected_target <<< "$test_values"
+
+    expanded_path=$(eval echo "$path")
+    if [[ ! -L $expanded_path ]]; then
+      fail "Expected \"$expanded_path\" to be a symbolic link"
+    fi
+    actual_target=$(readlink "$expanded_path")
+    if [[ "$actual_target" != "$expected_target" ]]; then
+      fail "Expected \"$expanded_path\" to target \"$expected_target\", but got \"$actual_target\""
+    fi
   done
 fi
 

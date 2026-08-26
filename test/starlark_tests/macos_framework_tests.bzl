@@ -14,9 +14,19 @@
 
 """macos_framework Starlark tests."""
 
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load(
+    "//apple/build_settings:build_settings.bzl",
+    "build_settings_labels",
+)
 load(
     "//test/starlark_tests/rules:common_verification_tests.bzl",
     "archive_contents_test",
+)
+load(
+    "//test/starlark_tests/rules:directory_test.bzl",
+    "directory_test",
 )
 load(
     "//test/starlark_tests/rules:infoplist_contents_test.bzl",
@@ -25,6 +35,34 @@ load(
 load(
     ":common.bzl",
     "common",
+)
+
+def _cc_info_framework_inputs_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target_under_test = analysistest.target_under_test(env)
+    framework_inputs = [
+        file.short_path
+        for linker_input in target_under_test[CcInfo].linking_context.linker_inputs.to_list()
+        for file in linker_input.additional_inputs
+    ]
+
+    asserts.equals(
+        env,
+        1,
+        len(framework_inputs),
+    )
+    asserts.true(
+        env,
+        any([
+            path.endswith("/frameworks/fmwk.framework/Versions/A/fmwk")
+            for path in framework_inputs
+        ]),
+        "Expected only the top-level framework binary in CcInfo: {}".format(framework_inputs),
+    )
+    return analysistest.end(env)
+
+cc_info_framework_inputs_test = analysistest.make(
+    _cc_info_framework_inputs_test_impl,
 )
 
 def macos_framework_test_suite(name):
@@ -71,13 +109,67 @@ def macos_framework_test_suite(name):
         name = "{}_archive_contents_test".format(name),
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:fmwk",
-        binary_test_file = "$BUNDLE_ROOT/fmwk",
-        macho_load_commands_contain = ["name @rpath/fmwk.framework/fmwk (offset 24)"],
+        binary_test_file = "$BUNDLE_ROOT/Versions/A/fmwk",
+        assert_file_permissions = {
+            "$BUNDLE_ROOT/Resources": "120755",
+            "$BUNDLE_ROOT/Versions/Current": "120755",
+            "$BUNDLE_ROOT/fmwk": "120755",
+        },
+        assert_symlink_targets = {
+            "$BUNDLE_ROOT/Resources": "Versions/Current/Resources",
+            "$BUNDLE_ROOT/Versions/Current": "A",
+            "$BUNDLE_ROOT/fmwk": "Versions/Current/fmwk",
+        },
+        macho_load_commands_contain = [
+            "name @rpath/fmwk.framework/Versions/A/fmwk (offset 24)",
+        ],
         contains = [
             "$BUNDLE_ROOT/fmwk",
-            "$BUNDLE_ROOT/Headers/common.h",
-            "$BUNDLE_ROOT/Info.plist",
+            "$BUNDLE_ROOT/Resources",
+            "$BUNDLE_ROOT/Versions/A/Headers/common.h",
+            "$BUNDLE_ROOT/Versions/A/Resources/Info.plist",
+            "$BUNDLE_ROOT/Versions/A/fmwk",
+            "$BUNDLE_ROOT/Versions/Current",
         ],
+        not_contains = [
+            "$BUNDLE_ROOT/Headers",
+        ],
+        tags = [name],
+    )
+
+    directory_test(
+        name = "{}_tree_artifact_contents_test".format(name),
+        build_settings = {
+            build_settings_labels.use_tree_artifacts_outputs: "True",
+        },
+        expected_directories = {
+            "fmwk.framework": [
+                "Resources/Info.plist",
+                "Versions/A/Headers/common.h",
+                "Versions/A/Resources/Info.plist",
+                "Versions/A/fmwk",
+                "Versions/Current/fmwk",
+                "fmwk",
+            ],
+        },
+        target_under_test = "//test/starlark_tests/targets_under_test/macos:fmwk",
+        tags = [name],
+    )
+
+    archive_contents_test(
+        name = "{}_objc_library_direct_dependency_test".format(name),
+        build_type = "simulator",
+        target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_objc_lib_with_direct_fmwk_dep",
+        binary_test_file = "$CONTENT_ROOT/MacOS/app_with_objc_lib_with_direct_fmwk_dep",
+        macho_load_commands_contain = [
+            "name @rpath/fmwk.framework/Versions/A/fmwk (offset 24)",
+        ],
+        tags = [name],
+    )
+
+    cc_info_framework_inputs_test(
+        name = "{}_cc_info_framework_inputs_test".format(name),
+        target_under_test = "//test/starlark_tests/targets_under_test/macos:fmwk",
         tags = [name],
     )
 
@@ -87,13 +179,13 @@ def macos_framework_test_suite(name):
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_bundle_only_fmwks",
         binary_test_file = "$CONTENT_ROOT/MacOS/app_with_bundle_only_fmwks",
         macho_load_commands_not_contain = [
-            "name @rpath/bundle_only_fmwk.framework/bundle_only_fmwk (offset 24)",
-            "name @rpath/generated_macos_dynamic_fmwk.framework/generated_macos_dynamic_fmwk (offset 24)",
+            "name @rpath/bundle_only_fmwk.framework/Versions/A/bundle_only_fmwk (offset 24)",
+            "name @rpath/generated_macos_dynamic_fmwk.framework/Versions/A/Resources/generated_macos_dynamic_fmwk (offset 24)",
         ],
         contains = [
-            "$CONTENT_ROOT/Frameworks/bundle_only_fmwk.framework/bundle_only_fmwk",
-            "$CONTENT_ROOT/Frameworks/bundle_only_fmwk.framework/nonlocalized.plist",
-            "$CONTENT_ROOT/Frameworks/generated_macos_dynamic_fmwk.framework/generated_macos_dynamic_fmwk",
+            "$CONTENT_ROOT/Frameworks/bundle_only_fmwk.framework/Versions/A/bundle_only_fmwk",
+            "$CONTENT_ROOT/Frameworks/bundle_only_fmwk.framework/Versions/A/Resources/nonlocalized.plist",
+            "$CONTENT_ROOT/Frameworks/generated_macos_dynamic_fmwk.framework/Versions/A/Resources/generated_macos_dynamic_fmwk",
         ],
         tags = [name],
     )
@@ -110,8 +202,8 @@ def macos_framework_test_suite(name):
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_ext_and_fmwk_provisioned",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/fmwk_with_provisioning",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/Info.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/Versions/A/fmwk_with_provisioning",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/Versions/A/Resources/Info.plist",
             "$CONTENT_ROOT/PlugIns/ext_with_fmwk_provisioned.appex",
         ],
         not_contains = ["$CONTENT_ROOT/PlugIns/ext_with_fmwk_provisioned.appex/Frameworks"],
@@ -125,7 +217,7 @@ def macos_framework_test_suite(name):
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_same_resource_names_as_framework",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_duplicate_resource_names.framework/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_duplicate_resource_names.framework/Versions/A/Resources/Another.plist",
             "$CONTENT_ROOT/Resources/Another.plist",
         ],
         tags = [name],
@@ -136,11 +228,11 @@ def macos_framework_test_suite(name):
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_ext_with_fmwk_provisioned",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/fmwk_with_provisioning",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/Info.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/Versions/A/fmwk_with_provisioning",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_provisioning.framework/Versions/A/Resources/Info.plist",
             "$CONTENT_ROOT/PlugIns/ext_with_fmwk_provisioned.appex",
         ],
-        not_contains = ["$CONTENT_ROOT/PlugIns/ext_with_fmwk_provisioned.appex/Frameworks/fmwk_with_provisioning.framework/fmwk_with_provisioning"],
+        not_contains = ["$CONTENT_ROOT/PlugIns/ext_with_fmwk_provisioned.appex/Frameworks/fmwk_with_provisioning.framework/Versions/A/fmwk_with_provisioning"],
         tags = [name],
     )
 
@@ -152,7 +244,7 @@ def macos_framework_test_suite(name):
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_framework_and_shared_resources",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/Another.plist",
             "$CONTENT_ROOT/Resources/Another.plist",
         ],
         tags = [name],
@@ -164,7 +256,7 @@ def macos_framework_test_suite(name):
         name = "{}_resources_in_framework_stays_in_framework".format(name),
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_framework_and_resources",
-        contains = ["$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Another.plist"],
+        contains = ["$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/Another.plist"],
         not_contains = ["$CONTENT_ROOT/Resources/another.plist"],
         tags = [name],
     )
@@ -176,7 +268,7 @@ def macos_framework_test_suite(name):
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_framework_and_resources",
         binary_test_architecture = "x86_64",
-        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/fmwk_with_resources",
+        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/fmwk_with_resources",
         binary_contains_symbols = ["_dontCallMeShared"],
         tags = [name],
     )
@@ -195,18 +287,18 @@ def macos_framework_test_suite(name):
         name = "{}_app_includes_transitive_framework_test".format(name),
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_fmwk_with_fmwk",
-        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk.framework/fmwk",
+        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk.framework/Versions/A/fmwk",
         binary_test_architecture = "x86_64",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/fmwk_with_fmwk",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Info.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk.framework/nonlocalized.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk.framework/fmwk",
-            "$CONTENT_ROOT/Frameworks/fmwk.framework/Info.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Versions/A/fmwk_with_fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Versions/A/Resources/Info.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk.framework/Versions/A/Resources/nonlocalized.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk.framework/Versions/A/fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk.framework/Versions/A/Resources/Info.plist",
         ],
         not_contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Frameworks/",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/nonlocalized.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Versions/A/Frameworks/",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Versions/A/Resources/nonlocalized.plist",
             "$CONTENT_ROOT/framework_resources/nonlocalized.plist",
         ],
         binary_contains_symbols = ["_anotherFunctionShared"],
@@ -289,11 +381,11 @@ def macos_framework_test_suite(name):
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_inner_and_outer_fmwk",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_imported_fmwk.framework/fmwk_with_imported_fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_imported_fmwk.framework/Versions/A/fmwk_with_imported_fmwk",
             "$CONTENT_ROOT/Frameworks/macOSDynamicFramework.framework/macOSDynamicFramework",
         ],
         not_contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_with_imported_fmwk.framework/Frameworks",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_imported_fmwk.framework/Versions/A/Frameworks",
         ],
         tags = [name],
     )
@@ -305,7 +397,7 @@ def macos_framework_test_suite(name):
         name = "{}_prebuild_static_framework_included_in_outer_framework".format(name),
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_inner_and_outer_static_fmwk",
-        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk_with_imported_static_fmwk.framework/fmwk_with_imported_static_fmwk",
+        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk_with_imported_static_fmwk.framework/Versions/A/fmwk_with_imported_static_fmwk",
         binary_test_architecture = "x86_64",
         binary_contains_symbols = ["-[ObjectiveCSharedClass doSomethingShared]"],
         tags = [name],
@@ -327,7 +419,7 @@ def macos_framework_test_suite(name):
         name = "{}_symbols_present_in_framework".format(name),
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_min_os_baseline",
-        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline.framework/fmwk_min_os_baseline",
+        binary_test_file = "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline.framework/Versions/A/fmwk_min_os_baseline",
         binary_test_architecture = "x86_64",
         binary_contains_symbols = ["_anotherFunctionShared"],
         tags = [name],
@@ -370,23 +462,23 @@ def macos_framework_test_suite(name):
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_fmwks_from_objc_swift_libraries_using_data",
         apple_generate_dsym = True,
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/fmwk_no_version",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/fmwk_with_resources",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/Versions/A/fmwk_no_version",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/fmwk_with_resources",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/Another.plist",
         ],
         not_contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/basic.bundle",
             "$CONTENT_ROOT/Resources/Another.plist",
             "$CONTENT_ROOT/Resources/basic.bundle",
         ],
         binary_test_file = "$CONTENT_ROOT/MacOS/app_with_fmwks_from_objc_swift_libraries_using_data",
         macho_load_commands_not_contain = [
-            "name @rpath/fmwk_with_resources.framework/fmwk_with_resources (offset 24)",
-            "name @rpath/fmwk_no_version.framework/fmwk_no_version (offset 24)",
-            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle (offset 24)",
+            "name @rpath/fmwk_with_resources.framework/Versions/A/fmwk_with_resources (offset 24)",
+            "name @rpath/fmwk_no_version.framework/Versions/A/fmwk_no_version (offset 24)",
+            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle (offset 24)",
         ],
         tags = [name],
     )
@@ -396,23 +488,23 @@ def macos_framework_test_suite(name):
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_fmwks_from_objc_swift_libraries_using_data",
         apple_generate_dsym = True,
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/fmwk_no_version",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/fmwk_with_resources",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/Versions/A/fmwk_no_version",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/fmwk_with_resources",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/Another.plist",
         ],
         not_contains = [
             "$CONTENT_ROOT/Resources/Another.plist",
             "$CONTENT_ROOT/Resources/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/basic.bundle",
         ],
         binary_test_file = "$CONTENT_ROOT/MacOS/app_with_fmwks_from_objc_swift_libraries_using_data",
         macho_load_commands_not_contain = [
-            "name @rpath/fmwk_no_version.framework/fmwk_no_version (offset 24)",
-            "name @rpath/fmwk_with_resources.framework/fmwk_with_resources (offset 24)",
-            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle (offset 24)",
+            "name @rpath/fmwk_no_version.framework/Versions/A/fmwk_no_version (offset 24)",
+            "name @rpath/fmwk_with_resources.framework/Versions/A/fmwk_with_resources (offset 24)",
+            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle (offset 24)",
         ],
         tags = [name],
     )
@@ -427,23 +519,23 @@ def macos_framework_test_suite(name):
         build_type = "simulator",
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_fmwks_from_transitive_objc_swift_libraries_using_data",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/fmwk_no_version",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/fmwk_with_resources",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/Versions/A/fmwk_no_version",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/fmwk_with_resources",
         ],
         not_contains = [
             "$CONTENT_ROOT/Resources/Another.plist",
             "$CONTENT_ROOT/Resources/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/basic.bundle",
         ],
         binary_test_file = "$CONTENT_ROOT/MacOS/app_with_fmwks_from_transitive_objc_swift_libraries_using_data",
         macho_load_commands_not_contain = [
-            "name @rpath/fmwk_no_version.framework/fmwk_no_version (offset 24)",
-            "name @rpath/fmwk_with_resources.framework/fmwk_with_resources (offset 24)",
-            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle (offset 24)",
+            "name @rpath/fmwk_no_version.framework/Versions/A/fmwk_no_version (offset 24)",
+            "name @rpath/fmwk_with_resources.framework/Versions/A/fmwk_with_resources (offset 24)",
+            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle (offset 24)",
         ],
         tags = [name],
     )
@@ -458,26 +550,26 @@ def macos_framework_test_suite(name):
         build_type = "device",
         binary_test_file = "$CONTENT_ROOT/MacOS/app_with_fmwks_from_frameworks_and_objc_swift_libraries_using_data",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk.framework/fmwk",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/fmwk_no_version",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/fmwk_with_resources",
+            "$CONTENT_ROOT/Frameworks/fmwk.framework/Versions/A/fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/Versions/A/fmwk_no_version",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/fmwk_with_resources",
         ],
         not_contains = [
             "$CONTENT_ROOT/Resources/Another.plist",
             "$CONTENT_ROOT/Resources/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/basic.bundle",
         ],
         macho_load_commands_contain = [
-            "name @rpath/fmwk.framework/fmwk (offset 24)",
+            "name @rpath/fmwk.framework/Versions/A/fmwk (offset 24)",
         ],
         macho_load_commands_not_contain = [
-            "name @rpath/fmwk_no_version.framework/fmwk_no_version (offset 24)",
-            "name @rpath/fmwk_with_resources.framework/fmwk_with_resources (offset 24)",
-            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle (offset 24)",
+            "name @rpath/fmwk_no_version.framework/Versions/A/fmwk_no_version (offset 24)",
+            "name @rpath/fmwk_with_resources.framework/Versions/A/fmwk_with_resources (offset 24)",
+            "name @rpath/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle (offset 24)",
         ],
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_fmwks_from_frameworks_and_objc_swift_libraries_using_data",
         tags = [name],
@@ -492,15 +584,15 @@ def macos_framework_test_suite(name):
         contains = [
             "$CONTENT_ROOT/Resources/Another.plist",
             "$CONTENT_ROOT/Resources/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/basic.bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/fmwk_min_os_baseline_with_bundle",
-            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/fmwk_no_version",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/fmwk_with_resources",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/fmwk_min_os_baseline_with_bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_no_version.framework/Versions/A/fmwk_no_version",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/fmwk_with_resources",
         ],
         not_contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Another.plist",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/basic.bundle",
+            "$CONTENT_ROOT/Frameworks/fmwk_min_os_baseline_with_bundle.framework/Versions/A/Resources/Another.plist",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_resources.framework/Versions/A/Resources/basic.bundle",
         ],
         tags = [name],
     )
@@ -521,14 +613,14 @@ def macos_framework_test_suite(name):
         build_type = "device",
         binary_test_file = "$CONTENT_ROOT/MacOS/app_with_fmwk_and_ext_with_objc_lib_with_nested_macos_framework",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk.framework/fmwk",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/fmwk_with_fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk.framework/Versions/A/fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Versions/A/fmwk_with_fmwk",
         ],
         macho_load_commands_contain = [
-            "name @rpath/fmwk.framework/fmwk (offset 24)",
+            "name @rpath/fmwk.framework/Versions/A/fmwk (offset 24)",
         ],
         macho_load_commands_not_contain = [
-            "name @rpath/fmwk_with_fmwk.framework/fmwk_with_fmwk (offset 24)",
+            "name @rpath/fmwk_with_fmwk.framework/Versions/A/fmwk_with_fmwk (offset 24)",
         ],
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_fmwk_and_ext_with_objc_lib_with_nested_macos_framework",
         tags = [name],
@@ -539,14 +631,14 @@ def macos_framework_test_suite(name):
         build_type = "device",
         binary_test_file = "$CONTENT_ROOT/MacOS/app_with_fmwk_and_ext_with_objc_lib_with_nested_macos_framework",
         contains = [
-            "$CONTENT_ROOT/Frameworks/fmwk.framework/fmwk",
-            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/fmwk_with_fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk.framework/Versions/A/fmwk",
+            "$CONTENT_ROOT/Frameworks/fmwk_with_fmwk.framework/Versions/A/fmwk_with_fmwk",
         ],
         macho_load_commands_contain = [
-            "name @rpath/fmwk.framework/fmwk (offset 24)",
+            "name @rpath/fmwk.framework/Versions/A/fmwk (offset 24)",
         ],
         macho_load_commands_not_contain = [
-            "name @rpath/fmwk_with_fmwk.framework/fmwk_with_fmwk (offset 24)",
+            "name @rpath/fmwk_with_fmwk.framework/Versions/A/fmwk_with_fmwk (offset 24)",
         ],
         target_under_test = "//test/starlark_tests/targets_under_test/macos:app_with_fmwk_and_ext_with_objc_lib_with_nested_macos_framework",
         tags = [name],
